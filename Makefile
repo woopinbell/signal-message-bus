@@ -13,7 +13,7 @@ CLIENT_SRC := src/client.c $(COMMON_SRC)
 SERVER_OBJ := $(SERVER_SRC:%.c=$(OBJ_DIR)/%.o)
 CLIENT_OBJ := $(CLIENT_SRC:%.c=$(OBJ_DIR)/%.o)
 
-.PHONY: all clean fclean re
+.PHONY: all clean fclean re test
 
 all: $(NAME_SERVER) $(NAME_CLIENT)
 
@@ -34,3 +34,6 @@ fclean: clean
 	$(RM) $(NAME_SERVER) $(NAME_CLIENT)
 
 re: fclean all
+
+test: all
+	sh tests/smoke.sh
