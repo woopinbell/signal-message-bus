@@ -1,8 +1,12 @@
 #ifndef MINITALK_H
 # define MINITALK_H
 
+# include <signal.h>
 # include <stddef.h>
 # include <sys/types.h>
+
+# define MT_ZERO_SIGNAL SIGUSR1
+# define MT_ONE_SIGNAL SIGUSR2
 
 void	mt_putstr_fd(const char *text, int fd);
 void	mt_putnbr_fd(pid_t number, int fd);
