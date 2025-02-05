@@ -8,6 +8,7 @@
 # define MT_ZERO_SIGNAL SIGUSR1
 # define MT_ONE_SIGNAL SIGUSR2
 # define MT_ACK_SIGNAL SIGUSR1
+# define MT_NACK_SIGNAL SIGUSR2
 # define MT_ACK_TIMEOUT_SECONDS 1
 
 void	mt_putstr_fd(const char *text, int fd);
