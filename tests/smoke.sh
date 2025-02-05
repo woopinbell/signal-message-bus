@@ -9,6 +9,20 @@ SERVER_ERR="$TEST_TMP/server.err"
 CLIENT_ERR="$TEST_TMP/client.err"
 SERVER_PID=
 
+send_checked()
+{
+	label=$1
+	message=$2
+	if ! "$ROOT/client" "$SERVER_PID" "$message" 2>"$CLIENT_ERR"; then
+		printf 'client failed during %s\n' "$label" >&2
+		exit 1
+	fi
+	if [ -s "$CLIENT_ERR" ]; then
+		printf 'client wrote to stderr during %s\n' "$label" >&2
+		exit 1
+	fi
+}
+
 cleanup()
 {
 	if [ -n "$SERVER_PID" ]; then
@@ -43,18 +57,25 @@ if [ ! -s "$OUT" ] || [ "$(sed -n '1p' "$OUT")" != "$SERVER_PID" ]; then
 	printf 'server did not publish its complete pid line\n' >&2
 	exit 1
 fi
-if ! "$ROOT/client" "$SERVER_PID" "hello" 2>"$CLIENT_ERR"; then
-	printf 'client failed to deliver hello\n' >&2
-	exit 1
-fi
-if [ -s "$CLIENT_ERR" ] || [ -s "$SERVER_ERR" ]; then
-	printf 'smoke test wrote unexpected diagnostics\n' >&2
+send_checked hello "hello"
+send_checked empty ""
+send_checked utf8 "안녕하세요"
+LONG_MESSAGE=$(awk 'BEGIN { for (i = 0; i < 1024; i++) printf "x" }')
+send_checked long "$LONG_MESSAGE"
+send_checked final "last message"
+
+if [ -s "$SERVER_ERR" ]; then
+	printf 'server wrote unexpected diagnostics\n' >&2
 	exit 1
 fi
 
 {
 	printf '%s\n' "$SERVER_PID"
 	printf 'hello\n'
+	printf '\n'
+	printf '안녕하세요\n'
+	printf '%s\n' "$LONG_MESSAGE"
+	printf 'last message\n'
 } >"$EXPECTED"
 
 diff -u "$EXPECTED" "$OUT"
