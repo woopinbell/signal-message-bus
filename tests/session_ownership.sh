@@ -109,6 +109,14 @@ if ! "$ROOT/client" "$SERVER_PID" "holder recovered" 2>>"$CLIENT_ERR"; then
 	exit 1
 fi
 
+masked_status=0
+"$ROOT/tests/masked_exec" "$ROOT/client" "$SERVER_PID" "masked ack" \
+	2>>"$CLIENT_ERR" || masked_status=$?
+if [ "$masked_status" -ne 0 ]; then
+	printf 'client did not consume acknowledgements inherited as blocked\n' >&2
+	exit 1
+fi
+
 if [ -s "$CLIENT_ERR" ]; then
 	printf 'recovered client wrote to stderr\n' >&2
 	cat "$CLIENT_ERR" >&2
@@ -128,6 +136,7 @@ fi
 	printf 'line recovered\n'
 	printf 'X\n'
 	printf 'holder recovered\n'
+	printf 'masked ack\n'
 } >"$EXPECTED"
 
 diff -u "$EXPECTED" "$OUT"
