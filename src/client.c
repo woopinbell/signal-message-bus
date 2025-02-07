@@ -292,8 +292,8 @@ static int	request_session(pid_t server_pid, const char *server_path)
 			server_path, &deadline));
 }
 
-static int	send_bit(pid_t server_pid, int bit, const sigset_t *old_mask,
-		uint32_t sequence, const char *server_path)
+static int	send_bit(pid_t server_pid, int bit, uint32_t sequence,
+		const char *server_path)
 {
 	struct timespec	deadline;
 	int				signal;
@@ -302,22 +302,13 @@ static int	send_bit(pid_t server_pid, int bit, const sigset_t *old_mask,
 	signal = MT_ZERO_SIGNAL;
 	if (bit != 0)
 		signal = MT_ONE_SIGNAL;
-	g_ack_received = 0;
-	g_timed_out = 0;
-	g_rejected = 0;
-	if (kill(server_pid, signal) == -1)
+	if (validate_server_socket(server_path) == -1)
 		return (SEND_ERROR);
-	alarm(MT_ACK_TIMEOUT_SECONDS);
-	while (!g_ack_received && !g_timed_out && !g_rejected)
-		sigsuspend(old_mask);
-	alarm(0);
-	if (g_rejected)
-		return (SEND_REJECTED);
-	if (g_timed_out)
-		return (SEND_TIMEOUT);
 	if (clock_gettime(CLOCK_MONOTONIC, &deadline) == -1)
 		return (SEND_ERROR);
 	deadline.tv_sec += MT_ACK_TIMEOUT_SECONDS;
+	if (kill(server_pid, signal) == -1)
+		return (SEND_ERROR);
 	status = wait_for_response(server_pid, MT_RESPONSE_ACK, sequence,
 			server_path, &deadline);
 	if (status != 0)
@@ -327,7 +318,7 @@ static int	send_bit(pid_t server_pid, int bit, const sigset_t *old_mask,
 }
 
 static int	send_byte(pid_t server_pid, unsigned char byte,
-		const sigset_t *old_mask, uint32_t *sequence, const char *server_path)
+		uint32_t *sequence, const char *server_path)
 {
 	int	status;
 	int	shift;
@@ -335,8 +326,8 @@ static int	send_byte(pid_t server_pid, unsigned char byte,
 	shift = 7;
 	while (shift >= 0)
 	{
-		status = send_bit(server_pid, (byte >> shift) & 1, old_mask,
-				*sequence, server_path);
+		status = send_bit(server_pid, (byte >> shift) & 1, *sequence,
+				server_path);
 		if (status != 0)
 			return (status);
 		(*sequence)++;
@@ -414,12 +405,12 @@ int	main(int argc, char **argv)
 	while (argv[2][index] != '\0')
 	{
 		status = send_byte(server_pid, (unsigned char)argv[2][index],
-				&wait_mask, &sequence, server_path);
+				&sequence, server_path);
 		if (status != 0)
 			return (report_send_status(status));
 		index++;
 	}
-	status = send_byte(server_pid, '\0', &wait_mask, &sequence, server_path);
+	status = send_byte(server_pid, '\0', &sequence, server_path);
 	if (status != 0)
 		return (report_send_status(status));
 	return (0);
