@@ -157,7 +157,8 @@ static int	install_handlers(void)
 	return (0);
 }
 
-static int	wait_for_ack(pid_t server_pid, int bit, const sigset_t *wait_mask)
+static int	send_bit(pid_t server_pid, int bit, uint32_t sequence,
+		const char *server_path)
 {
 	struct timespec	gap;
 	int				signal;
@@ -165,16 +166,9 @@ static int	wait_for_ack(pid_t server_pid, int bit, const sigset_t *wait_mask)
 	signal = MT_ZERO_SIGNAL;
 	if (bit != 0)
 		signal = MT_ONE_SIGNAL;
-	g_ack_received = 0;
-	g_timed_out = 0;
-	g_rejected = 0;
-	if (kill(server_pid, signal) == -1)
-		return (-1);
-	alarm(MT_ACK_TIMEOUT_SECONDS);
-	while (!g_ack_received && !g_timed_out && !g_rejected)
-		sigsuspend(wait_mask);
-	alarm(0);
-	if (!g_ack_received || g_timed_out || g_rejected)
+	if (kill(server_pid, signal) == -1
+		|| wait_for_response(server_pid, MT_RESPONSE_ACK, sequence,
+			server_path) == -1)
 		return (-1);
 	gap.tv_sec = 0;
 	gap.tv_nsec = MT_SIGNAL_GAP_US * 1000L;
@@ -187,29 +181,31 @@ static int	wait_for_ack(pid_t server_pid, int bit, const sigset_t *wait_mask)
 }
 
 static int	send_byte(pid_t server_pid, unsigned char byte,
-		const sigset_t *wait_mask)
+		uint32_t *sequence, const char *server_path)
 {
 	int	shift;
 
 	shift = 7;
 	while (shift >= 0)
 	{
-		if (wait_for_ack(server_pid, (byte >> shift) & 1, wait_mask) == -1)
+		if (send_bit(server_pid, (byte >> shift) & 1, *sequence,
+				server_path) == -1)
 			return (-1);
+		(*sequence)++;
 		shift--;
 	}
 	return (0);
 }
 
-static int	send_partial(pid_t server_pid, const sigset_t *wait_mask)
+static int	send_partial(pid_t server_pid, uint32_t *sequence,
+		const char *server_path)
 {
-	if (send_byte(server_pid, 'X', wait_mask) == -1)
+	if (send_byte(server_pid, 'X', sequence, server_path) == -1
+		|| send_bit(server_pid, 0, (*sequence)++, server_path) == -1
+		|| send_bit(server_pid, 1, (*sequence)++, server_path) == -1
+		|| send_bit(server_pid, 0, (*sequence)++, server_path) == -1)
 		return (-1);
-	if (wait_for_ack(server_pid, 0, wait_mask) == -1)
-		return (-1);
-	if (wait_for_ack(server_pid, 1, wait_mask) == -1)
-		return (-1);
-	return (wait_for_ack(server_pid, 0, wait_mask));
+	return (0);
 }
 
 static int	prepare_masks(sigset_t *wait_mask)
@@ -232,6 +228,7 @@ int	main(int argc, char **argv)
 {
 	pid_t		server_pid;
 	sigset_t	wait_mask;
+	uint32_t	sequence;
 	char		server_path[MT_RESPONSE_PATH_SIZE];
 
 	if (argc != 3 || !mt_parse_pid(argv[1], &server_pid)
@@ -242,15 +239,16 @@ int	main(int argc, char **argv)
 		return (1);
 	if (request_session(server_pid, server_path) == -1)
 		return (1);
+	sequence = 0;
 	if (strcmp(argv[2], "bit") == 0)
 	{
-		if (wait_for_ack(server_pid, 0, &wait_mask) == -1)
+		if (send_bit(server_pid, 0, sequence, server_path) == -1)
 			return (1);
 	}
 	else if (strcmp(argv[2], "partial") == 0
 		|| strcmp(argv[2], "hold") == 0)
 	{
-		if (send_partial(server_pid, &wait_mask) == -1)
+		if (send_partial(server_pid, &sequence, server_path) == -1)
 			return (1);
 	}
 	else
