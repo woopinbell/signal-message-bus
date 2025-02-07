@@ -24,14 +24,23 @@ static volatile sig_atomic_t	g_current_byte;
 static volatile sig_atomic_t	g_received_bits;
 static volatile sig_atomic_t	g_client_pid;
 static volatile sig_atomic_t	g_line_started;
+static volatile sig_atomic_t	g_response_overflow;
+static volatile sig_atomic_t	g_sequence;
+static int						g_response_pipe[2] = {-1, -1};
 static int						g_response_socket = -1;
 static int						g_server_bound;
 static char						g_server_path[MT_RESPONSE_PATH_SIZE];
 
 static void	cleanup_server(void)
 {
+	if (g_response_pipe[0] != -1)
+		close(g_response_pipe[0]);
+	if (g_response_pipe[1] != -1)
+		close(g_response_pipe[1]);
 	if (g_response_socket != -1)
 		close(g_response_socket);
+	g_response_pipe[0] = -1;
+	g_response_pipe[1] = -1;
 	g_response_socket = -1;
 	if (g_server_bound && g_server_path[0] != '\0')
 		unlink(g_server_path);
@@ -47,6 +56,7 @@ static void	reset_session(int close_partial_line)
 	g_received_bits = 0;
 	g_client_pid = 0;
 	g_line_started = 0;
+	g_sequence = 0;
 }
 
 static void	flush_byte(unsigned char output)
@@ -63,9 +73,24 @@ static void	flush_byte(unsigned char output)
 	}
 }
 
+static void	queue_response(pid_t client_pid, uint32_t kind,
+		uint32_t token, int status)
+{
+	t_response_request	request;
+
+	request.client_pid = client_pid;
+	request.kind = kind;
+	request.token = token;
+	request.status = status;
+	if (write(g_response_pipe[1], &request, sizeof(request))
+		!= (ssize_t)sizeof(request))
+		g_response_overflow = 1;
+}
+
 static void	handle_bit(int signal, siginfo_t *info, void *context)
 {
 	unsigned char	output;
+	uint32_t		sequence;
 	int				saved_errno;
 
 	saved_errno = errno;
@@ -88,6 +113,7 @@ static void	handle_bit(int signal, siginfo_t *info, void *context)
 	}
 	if (g_client_pid == 0)
 		g_client_pid = info->si_pid;
+	sequence = (uint32_t)g_sequence;
 	g_current_byte <<= 1;
 	if (signal == MT_ONE_SIGNAL)
 		g_current_byte |= 1;
@@ -101,6 +127,9 @@ static void	handle_bit(int signal, siginfo_t *info, void *context)
 	}
 	if (kill(info->si_pid, MT_ACK_SIGNAL) == -1 && errno == ESRCH)
 		reset_session(1);
+	if (g_client_pid != 0)
+		g_sequence++;
+	queue_response(info->si_pid, MT_RESPONSE_ACK, sequence, MT_RESPONSE_OK);
 	errno = saved_errno;
 }
 
@@ -139,6 +168,9 @@ static int	prepare_response_channel(void)
 {
 	struct sockaddr_un	address;
 
+	if (pipe(g_response_pipe) == -1
+		|| set_nonblocking_close_on_exec(g_response_pipe[1]) == -1)
+		return (-1);
 	if (mt_response_path(g_server_path, sizeof(g_server_path), "server",
 			getpid()) == -1 || remove_stale_socket(g_server_path) == -1)
 		return (-1);
@@ -292,23 +324,45 @@ static int	handle_session_request(void)
 	return (0);
 }
 
+static int	respond_to_bit(void)
+{
+	t_response_request	request;
+	ssize_t				size;
+
+	size = read(g_response_pipe[0], &request, sizeof(request));
+	if (size == -1 && errno == EINTR)
+		return (0);
+	if (size != (ssize_t)sizeof(request) || g_response_overflow)
+		return (-1);
+	(void)send_response(&request);
+	return (0);
+}
+
 static int	run_response_loop(void)
 {
 	fd_set	read_set;
+	int		max_fd;
 	int		status;
 
+	max_fd = g_response_pipe[0];
+	if (g_response_socket > max_fd)
+		max_fd = g_response_socket;
 	while (1)
 	{
 		FD_ZERO(&read_set);
+		FD_SET(g_response_pipe[0], &read_set);
 		FD_SET(g_response_socket, &read_set);
-		status = pselect(g_response_socket + 1, &read_set, NULL, NULL,
+		status = pselect(max_fd + 1, &read_set, NULL, NULL,
 				NULL, NULL);
 		if (status == -1 && errno == EINTR)
 			continue ;
-		if (status == -1)
+		if (status == -1 || g_response_overflow)
 			return (-1);
 		if (FD_ISSET(g_response_socket, &read_set)
 			&& handle_session_request() == -1)
+			return (-1);
+		if (FD_ISSET(g_response_pipe[0], &read_set)
+			&& respond_to_bit() == -1)
 			return (-1);
 	}
 }

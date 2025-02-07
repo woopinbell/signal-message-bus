@@ -292,9 +292,12 @@ static int	request_session(pid_t server_pid, const char *server_path)
 			server_path, &deadline));
 }
 
-static int	send_bit(pid_t server_pid, int bit, const sigset_t *old_mask)
+static int	send_bit(pid_t server_pid, int bit, const sigset_t *old_mask,
+		uint32_t sequence, const char *server_path)
 {
-	int	signal;
+	struct timespec	deadline;
+	int				signal;
+	int				status;
 
 	signal = MT_ZERO_SIGNAL;
 	if (bit != 0)
@@ -312,12 +315,19 @@ static int	send_bit(pid_t server_pid, int bit, const sigset_t *old_mask)
 		return (SEND_REJECTED);
 	if (g_timed_out)
 		return (SEND_TIMEOUT);
+	if (clock_gettime(CLOCK_MONOTONIC, &deadline) == -1)
+		return (SEND_ERROR);
+	deadline.tv_sec += MT_ACK_TIMEOUT_SECONDS;
+	status = wait_for_response(server_pid, MT_RESPONSE_ACK, sequence,
+			server_path, &deadline);
+	if (status != 0)
+		return (status);
 	wait_signal_gap();
 	return (0);
 }
 
 static int	send_byte(pid_t server_pid, unsigned char byte,
-		const sigset_t *old_mask)
+		const sigset_t *old_mask, uint32_t *sequence, const char *server_path)
 {
 	int	status;
 	int	shift;
@@ -325,9 +335,11 @@ static int	send_byte(pid_t server_pid, unsigned char byte,
 	shift = 7;
 	while (shift >= 0)
 	{
-		status = send_bit(server_pid, (byte >> shift) & 1, old_mask);
+		status = send_bit(server_pid, (byte >> shift) & 1, old_mask,
+				*sequence, server_path);
 		if (status != 0)
 			return (status);
+		(*sequence)++;
 		shift--;
 	}
 	return (0);
@@ -353,6 +365,7 @@ int	main(int argc, char **argv)
 	sigset_t	wait_mask;
 	int		status;
 	size_t	index;
+	uint32_t	sequence;
 	char	server_path[MT_RESPONSE_PATH_SIZE];
 
 	if (argc != 3)
@@ -397,15 +410,16 @@ int	main(int argc, char **argv)
 	if (status != 0)
 		return (report_send_status(status));
 	index = 0;
+	sequence = 0;
 	while (argv[2][index] != '\0')
 	{
 		status = send_byte(server_pid, (unsigned char)argv[2][index],
-				&wait_mask);
+				&wait_mask, &sequence, server_path);
 		if (status != 0)
 			return (report_send_status(status));
 		index++;
 	}
-	status = send_byte(server_pid, '\0', &wait_mask);
+	status = send_byte(server_pid, '\0', &wait_mask, &sequence, server_path);
 	if (status != 0)
 		return (report_send_status(status));
 	return (0);
