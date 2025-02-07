@@ -6,10 +6,19 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+typedef struct s_response_request
+{
+	pid_t		client_pid;
+	uint32_t	kind;
+	uint32_t	token;
+	int32_t		status;
+}	t_response_request;
 
 static volatile sig_atomic_t	g_current_byte;
 static volatile sig_atomic_t	g_received_bits;
@@ -168,6 +177,142 @@ static int	install_signal_handlers(void)
 	return (0);
 }
 
+static int	valid_client_socket(const char *path)
+{
+	struct stat	info;
+
+	if (lstat(path, &info) == -1)
+		return (-1);
+	if (!S_ISSOCK(info.st_mode) || info.st_uid != getuid())
+	{
+		errno = EACCES;
+		return (-1);
+	}
+	return (0);
+}
+
+static int	send_response(const t_response_request *request)
+{
+	struct sockaddr_un	address;
+	t_mt_response		response;
+	char				client_path[MT_RESPONSE_PATH_SIZE];
+
+	if (mt_response_path(client_path, sizeof(client_path), "client",
+			request->client_pid) == -1 || valid_client_socket(client_path) == -1)
+		return (-1);
+	memset(&address, 0, sizeof(address));
+	address.sun_family = AF_UNIX;
+	if (mt_strlen(client_path) >= sizeof(address.sun_path))
+	{
+		errno = ENAMETOOLONG;
+		return (-1);
+	}
+	memcpy(address.sun_path, client_path, mt_strlen(client_path) + 1);
+	response.magic = MT_RESPONSE_MAGIC;
+	response.kind = request->kind;
+	response.token = request->token;
+	response.status = request->status;
+	response.server_pid = getpid();
+	if (sendto(g_response_socket, &response, sizeof(response), 0,
+			(struct sockaddr *)&address, sizeof(address))
+		!= (ssize_t)sizeof(response))
+		return (-1);
+	return (0);
+}
+
+static int	valid_request_source(const struct sockaddr_un *source,
+		const t_mt_request *request)
+{
+	char	client_path[MT_RESPONSE_PATH_SIZE];
+
+	if (request->magic != MT_RESPONSE_MAGIC
+		|| request->kind != MT_REQUEST_ACQUIRE || request->client_pid <= 1
+		|| source->sun_family != AF_UNIX
+		|| source->sun_path[sizeof(source->sun_path) - 1] != '\0'
+		|| mt_response_path(client_path, sizeof(client_path), "client",
+			request->client_pid) == -1
+		|| strcmp(source->sun_path, client_path) != 0
+		|| valid_client_socket(client_path) == -1
+		|| kill(request->client_pid, 0) == -1)
+		return (0);
+	return (1);
+}
+
+static int	read_session_request(t_mt_request *request)
+{
+	unsigned char		payload[sizeof(*request) + 1];
+	struct sockaddr_un	source;
+	socklen_t			source_size;
+	ssize_t				size;
+
+	memset(&source, 0, sizeof(source));
+	source_size = sizeof(source);
+	size = recvfrom(g_response_socket, payload, sizeof(payload), 0,
+			(struct sockaddr *)&source, &source_size);
+	if (size == -1 && (errno == EAGAIN || errno == EWOULDBLOCK
+			|| errno == EINTR))
+		return (0);
+	if (size == -1)
+		return (-1);
+	if (size != (ssize_t)sizeof(*request))
+		return (0);
+	memcpy(request, payload, sizeof(*request));
+	return (valid_request_source(&source, request));
+}
+
+static int	handle_session_request(void)
+{
+	t_response_request	response;
+	t_mt_request		request;
+	int					new_owner;
+	int					status;
+
+	status = read_session_request(&request);
+	if (status <= 0)
+		return (status);
+	new_owner = 0;
+	response.status = MT_RESPONSE_OK;
+	if (g_client_pid != 0 && g_client_pid != request.client_pid)
+	{
+		if (kill((pid_t)g_client_pid, 0) == -1 && errno == ESRCH)
+			reset_session(1);
+		else
+			response.status = MT_RESPONSE_BUSY;
+	}
+	if (response.status == MT_RESPONSE_OK && g_client_pid == 0)
+	{
+		g_client_pid = request.client_pid;
+		new_owner = 1;
+	}
+	response.client_pid = request.client_pid;
+	response.kind = MT_RESPONSE_READY;
+	response.token = request.nonce;
+	if (send_response(&response) == -1 && new_owner)
+		reset_session(0);
+	return (0);
+}
+
+static int	run_response_loop(void)
+{
+	fd_set	read_set;
+	int		status;
+
+	while (1)
+	{
+		FD_ZERO(&read_set);
+		FD_SET(g_response_socket, &read_set);
+		status = pselect(g_response_socket + 1, &read_set, NULL, NULL,
+				NULL, NULL);
+		if (status == -1 && errno == EINTR)
+			continue ;
+		if (status == -1)
+			return (-1);
+		if (FD_ISSET(g_response_socket, &read_set)
+			&& handle_session_request() == -1)
+			return (-1);
+	}
+}
+
 int	main(void)
 {
 	if (prepare_response_channel() == -1 || atexit(cleanup_server) != 0)
@@ -184,7 +329,10 @@ int	main(void)
 	}
 	mt_putnbr_fd(getpid(), STDOUT_FILENO);
 	write(STDOUT_FILENO, "\n", 1);
-	while (1)
-		pause();
+	if (run_response_loop() == -1)
+	{
+		mt_putstr_fd("server: response channel failed\n", STDERR_FILENO);
+		return (1);
+	}
 	return (0);
 }
