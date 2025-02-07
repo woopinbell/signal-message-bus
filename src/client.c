@@ -17,11 +17,8 @@
 #define SEND_TIMEOUT 2
 #define SEND_REJECTED 3
 
-static volatile sig_atomic_t	g_ack_received;
-static volatile sig_atomic_t	g_timed_out;
-static volatile sig_atomic_t	g_rejected;
-static int						g_response_socket = -1;
-static char						g_client_path[MT_RESPONSE_PATH_SIZE];
+static int	g_response_socket = -1;
+static char	g_client_path[MT_RESPONSE_PATH_SIZE];
 
 static void	cleanup_response_socket(void)
 {
@@ -41,32 +38,6 @@ static void	wait_signal_gap(void)
 	remaining.tv_nsec = MT_SIGNAL_GAP_US * 1000L;
 	while (nanosleep(&remaining, &remaining) == -1 && errno == EINTR)
 		;
-}
-
-static void	handle_client_signal(int signal)
-{
-	if (signal == MT_ACK_SIGNAL)
-		g_ack_received = 1;
-	else if (signal == MT_NACK_SIGNAL)
-		g_rejected = 1;
-	else if (signal == SIGALRM)
-		g_timed_out = 1;
-}
-
-static int	install_client_handlers(void)
-{
-	struct sigaction	action;
-
-	action.sa_handler = handle_client_signal;
-	sigemptyset(&action.sa_mask);
-	action.sa_flags = 0;
-	if (sigaction(MT_ACK_SIGNAL, &action, NULL) == -1)
-		return (-1);
-	if (sigaction(SIGALRM, &action, NULL) == -1)
-		return (-1);
-	if (sigaction(MT_NACK_SIGNAL, &action, NULL) == -1)
-		return (-1);
-	return (0);
 }
 
 static int	set_nonblocking_close_on_exec(int fd)
@@ -100,6 +71,20 @@ static int	remove_stale_socket(const char *path)
 	return (unlink(path));
 }
 
+static int	validate_server_socket(const char *path)
+{
+	struct stat	info;
+
+	if (lstat(path, &info) == -1)
+		return (-1);
+	if (!S_ISSOCK(info.st_mode) || info.st_uid != getuid())
+	{
+		errno = EACCES;
+		return (-1);
+	}
+	return (0);
+}
+
 static int	bind_client_socket(void)
 {
 	struct sockaddr_un	address;
@@ -125,25 +110,11 @@ static int	bind_client_socket(void)
 	return (0);
 }
 
-static int	validate_server_socket(const char *path)
-{
-	struct stat	info;
-
-	if (lstat(path, &info) == -1)
-		return (-1);
-	if (!S_ISSOCK(info.st_mode) || info.st_uid != getuid())
-	{
-		errno = EACCES;
-		return (-1);
-	}
-	return (0);
-}
-
 static int	generate_nonce(uint32_t *nonce)
 {
 	unsigned char	*bytes;
 	size_t			offset;
-	ssize_t			count;
+	ssize_t		count;
 	int				random_fd;
 
 	random_fd = open("/dev/urandom", O_RDONLY);
@@ -269,7 +240,7 @@ static int	request_session(pid_t server_pid, const char *server_path)
 {
 	struct sockaddr_un	address;
 	struct timespec		deadline;
-	t_mt_request			request;
+	t_mt_request		request;
 
 	if (generate_nonce(&request.nonce) == -1
 		|| validate_server_socket(server_path) == -1
@@ -351,13 +322,11 @@ static int	report_send_status(int status)
 
 int	main(int argc, char **argv)
 {
-	pid_t	server_pid;
-	sigset_t	blocked;
-	sigset_t	wait_mask;
-	int		status;
-	size_t	index;
+	pid_t		server_pid;
+	int			status;
+	size_t		index;
 	uint32_t	sequence;
-	char	server_path[MT_RESPONSE_PATH_SIZE];
+	char		server_path[MT_RESPONSE_PATH_SIZE];
 
 	if (argc != 3)
 	{
@@ -366,15 +335,9 @@ int	main(int argc, char **argv)
 	}
 	if (!mt_parse_pid(argv[1], &server_pid) || kill(server_pid, 0) == -1
 		|| mt_response_path(server_path, sizeof(server_path), "server",
-			server_pid) == -1 || validate_server_socket(server_path) == -1)
+			server_pid) == -1)
 	{
 		mt_putstr_fd("client: invalid server pid\n", STDERR_FILENO);
-		return (1);
-	}
-	if (install_client_handlers() == -1)
-	{
-		mt_putstr_fd("client: failed to install signal handlers\n",
-			STDERR_FILENO);
 		return (1);
 	}
 	if (bind_client_socket() == -1 || atexit(cleanup_response_socket) != 0)
@@ -384,19 +347,11 @@ int	main(int argc, char **argv)
 			STDERR_FILENO);
 		return (1);
 	}
-	sigemptyset(&blocked);
-	sigaddset(&blocked, MT_ACK_SIGNAL);
-	sigaddset(&blocked, MT_NACK_SIGNAL);
-	sigaddset(&blocked, SIGALRM);
-	if (sigprocmask(SIG_BLOCK, &blocked, &wait_mask) == -1)
+	if (validate_server_socket(server_path) == -1)
 	{
-		mt_putstr_fd("client: failed to block acknowledgement signal\n",
-			STDERR_FILENO);
+		mt_putstr_fd("client: invalid server pid\n", STDERR_FILENO);
 		return (1);
 	}
-	sigdelset(&wait_mask, MT_ACK_SIGNAL);
-	sigdelset(&wait_mask, MT_NACK_SIGNAL);
-	sigdelset(&wait_mask, SIGALRM);
 	status = request_session(server_pid, server_path);
 	if (status != 0)
 		return (report_send_status(status));

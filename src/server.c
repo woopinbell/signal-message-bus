@@ -26,10 +26,10 @@ static volatile sig_atomic_t	g_client_pid;
 static volatile sig_atomic_t	g_line_started;
 static volatile sig_atomic_t	g_response_overflow;
 static volatile sig_atomic_t	g_sequence;
-static int						g_response_pipe[2] = {-1, -1};
-static int						g_response_socket = -1;
-static int						g_server_bound;
-static char						g_server_path[MT_RESPONSE_PATH_SIZE];
+static int					g_response_pipe[2] = {-1, -1};
+static int					g_response_socket = -1;
+static int					g_server_bound;
+static char					g_server_path[MT_RESPONSE_PATH_SIZE];
 
 static void	cleanup_server(void)
 {
@@ -100,19 +100,11 @@ static void	handle_bit(int signal, siginfo_t *info, void *context)
 		errno = saved_errno;
 		return ;
 	}
-	if (g_client_pid != 0 && g_client_pid != info->si_pid)
+	if (g_client_pid == 0 || g_client_pid != info->si_pid)
 	{
-		if (kill((pid_t)g_client_pid, 0) == -1 && errno == ESRCH)
-			reset_session(1);
-		else
-		{
-			kill(info->si_pid, MT_NACK_SIGNAL);
-			errno = saved_errno;
-			return ;
-		}
+		errno = saved_errno;
+		return ;
 	}
-	if (g_client_pid == 0)
-		g_client_pid = info->si_pid;
 	sequence = (uint32_t)g_sequence;
 	g_current_byte <<= 1;
 	if (signal == MT_ONE_SIGNAL)
@@ -125,8 +117,6 @@ static void	handle_bit(int signal, siginfo_t *info, void *context)
 		g_current_byte = 0;
 		g_received_bits = 0;
 	}
-	if (kill(info->si_pid, MT_ACK_SIGNAL) == -1 && errno == ESRCH)
-		reset_session(1);
 	if (g_client_pid != 0)
 		g_sequence++;
 	queue_response(info->si_pid, MT_RESPONSE_ACK, sequence, MT_RESPONSE_OK);
@@ -334,7 +324,9 @@ static int	respond_to_bit(void)
 		return (0);
 	if (size != (ssize_t)sizeof(request) || g_response_overflow)
 		return (-1);
-	(void)send_response(&request);
+	if (send_response(&request) == -1 && request.status == MT_RESPONSE_OK
+		&& request.client_pid == (pid_t)g_client_pid)
+		reset_session(1);
 	return (0);
 }
 
@@ -352,8 +344,7 @@ static int	run_response_loop(void)
 		FD_ZERO(&read_set);
 		FD_SET(g_response_pipe[0], &read_set);
 		FD_SET(g_response_socket, &read_set);
-		status = pselect(max_fd + 1, &read_set, NULL, NULL,
-				NULL, NULL);
+		status = pselect(max_fd + 1, &read_set, NULL, NULL, NULL, NULL);
 		if (status == -1 && errno == EINTR)
 			continue ;
 		if (status == -1 || g_response_overflow)
@@ -378,7 +369,8 @@ int	main(void)
 	}
 	if (install_signal_handlers() == -1)
 	{
-		mt_putstr_fd("server: failed to install signal handlers\n", STDERR_FILENO);
+		mt_putstr_fd("server: failed to install signal handlers\n",
+			STDERR_FILENO);
 		return (1);
 	}
 	mt_putnbr_fd(getpid(), STDOUT_FILENO);

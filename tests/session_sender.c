@@ -14,11 +14,8 @@
 #include <time.h>
 #include <unistd.h>
 
-static volatile sig_atomic_t	g_ack_received;
-static volatile sig_atomic_t	g_timed_out;
-static volatile sig_atomic_t	g_rejected;
-static int						g_socket = -1;
-static char						g_path[MT_RESPONSE_PATH_SIZE];
+static int	g_socket = -1;
+static char	g_path[MT_RESPONSE_PATH_SIZE];
 
 static void	cleanup(void)
 {
@@ -66,7 +63,8 @@ static int	prepare_socket(void)
 
 static int	response_matches(const t_mt_response *response,
 		const struct sockaddr_un *source, pid_t server_pid, uint32_t kind,
-		uint32_t token, const char *server_path)
+		uint32_t token,
+		const char *server_path)
 {
 	return (source->sun_family == AF_UNIX
 		&& source->sun_path[sizeof(source->sun_path) - 1] == '\0'
@@ -114,7 +112,7 @@ static int	wait_for_response(pid_t server_pid, uint32_t kind, uint32_t token,
 static int	request_session(pid_t server_pid, const char *server_path)
 {
 	struct sockaddr_un	address;
-	t_mt_request			request;
+	t_mt_request		request;
 
 	memset(&address, 0, sizeof(address));
 	address.sun_family = AF_UNIX;
@@ -131,32 +129,6 @@ static int	request_session(pid_t server_pid, const char *server_path)
 			server_path));
 }
 
-static void	handle_response(int signal)
-{
-	if (signal == MT_ACK_SIGNAL)
-		g_ack_received = 1;
-	else if (signal == MT_NACK_SIGNAL)
-		g_rejected = 1;
-	else if (signal == SIGALRM)
-		g_timed_out = 1;
-}
-
-static int	install_handlers(void)
-{
-	struct sigaction	action;
-
-	action.sa_handler = handle_response;
-	sigemptyset(&action.sa_mask);
-	action.sa_flags = 0;
-	if (sigaction(MT_ACK_SIGNAL, &action, NULL) == -1)
-		return (-1);
-	if (sigaction(MT_NACK_SIGNAL, &action, NULL) == -1)
-		return (-1);
-	if (sigaction(SIGALRM, &action, NULL) == -1)
-		return (-1);
-	return (0);
-}
-
 static int	send_bit(pid_t server_pid, int bit, uint32_t sequence,
 		const char *server_path)
 {
@@ -167,21 +139,17 @@ static int	send_bit(pid_t server_pid, int bit, uint32_t sequence,
 	if (bit != 0)
 		signal = MT_ONE_SIGNAL;
 	if (kill(server_pid, signal) == -1
-		|| wait_for_response(server_pid, MT_RESPONSE_ACK, sequence,
-			server_path) == -1)
+		|| wait_for_response(server_pid, MT_RESPONSE_ACK, sequence, server_path) == -1)
 		return (-1);
 	gap.tv_sec = 0;
 	gap.tv_nsec = MT_SIGNAL_GAP_US * 1000L;
-	while (nanosleep(&gap, &gap) == -1)
-	{
-		if (errno != EINTR)
-			return (-1);
-	}
+	while (nanosleep(&gap, &gap) == -1 && errno == EINTR)
+		;
 	return (0);
 }
 
-static int	send_byte(pid_t server_pid, unsigned char byte,
-		uint32_t *sequence, const char *server_path)
+static int	send_byte(pid_t server_pid, unsigned char byte, uint32_t *sequence,
+		const char *server_path)
 {
 	int	shift;
 
@@ -208,34 +176,15 @@ static int	send_partial(pid_t server_pid, uint32_t *sequence,
 	return (0);
 }
 
-static int	prepare_masks(sigset_t *wait_mask)
-{
-	sigset_t	blocked;
-
-	sigemptyset(&blocked);
-	sigaddset(&blocked, MT_ACK_SIGNAL);
-	sigaddset(&blocked, MT_NACK_SIGNAL);
-	sigaddset(&blocked, SIGALRM);
-	if (sigprocmask(SIG_BLOCK, &blocked, wait_mask) == -1)
-		return (-1);
-	sigdelset(wait_mask, MT_ACK_SIGNAL);
-	sigdelset(wait_mask, MT_NACK_SIGNAL);
-	sigdelset(wait_mask, SIGALRM);
-	return (0);
-}
-
 int	main(int argc, char **argv)
 {
 	pid_t		server_pid;
-	sigset_t	wait_mask;
 	uint32_t	sequence;
 	char		server_path[MT_RESPONSE_PATH_SIZE];
 
 	if (argc != 3 || !mt_parse_pid(argv[1], &server_pid)
 		|| mt_response_path(server_path, sizeof(server_path), "server",
 			server_pid) == -1 || prepare_socket() == -1 || atexit(cleanup) != 0)
-		return (1);
-	if (install_handlers() == -1 || prepare_masks(&wait_mask) == -1)
 		return (1);
 	if (request_session(server_pid, server_path) == -1)
 		return (1);
