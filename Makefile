@@ -3,6 +3,7 @@ NAME_CLIENT := client
 NAME_SESSION_SENDER := tests/session_sender
 NAME_MASKED_EXEC := tests/masked_exec
 NAME_RESPONSE_SERVER := tests/response_server
+NAME_PARSE_PID_TEST := tests/parse_pid_test
 
 CC := cc
 CFLAGS := -Wall -Wextra -Werror -Iinclude
@@ -19,6 +20,8 @@ CLIENT_OBJ := $(OBJ_DIR)/src/client.o $(COMMON_OBJ)
 SESSION_SENDER_OBJ := $(OBJ_DIR)/tests/session_sender.o $(COMMON_OBJ)
 MASKED_EXEC_OBJ := $(OBJ_DIR)/tests/masked_exec.o
 RESPONSE_SERVER_OBJ := $(OBJ_DIR)/tests/response_server.o $(COMMON_OBJ)
+PARSE_PID_TEST_OBJ := $(OBJ_DIR)/tests/parse_pid_test.o \
+	$(OBJ_DIR)/src/parse_pid.o
 
 .PHONY: all clean fclean re test
 
@@ -39,6 +42,9 @@ $(NAME_MASKED_EXEC): $(MASKED_EXEC_OBJ)
 $(NAME_RESPONSE_SERVER): $(RESPONSE_SERVER_OBJ)
 	$(CC) $(CFLAGS) $(RESPONSE_SERVER_OBJ) -o $@
 
+$(NAME_PARSE_PID_TEST): $(PARSE_PID_TEST_OBJ)
+	$(CC) $(CFLAGS) $(PARSE_PID_TEST_OBJ) -o $@
+
 $(OBJ_DIR)/%.o: %.c include/minitalk.h
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -48,11 +54,13 @@ clean:
 
 fclean: clean
 	$(RM) $(NAME_SERVER) $(NAME_CLIENT) $(NAME_SESSION_SENDER) \
-		$(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER)
+		$(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER) $(NAME_PARSE_PID_TEST)
 
 re: fclean all
 
-test: all $(NAME_SESSION_SENDER) $(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER)
+test: all $(NAME_SESSION_SENDER) $(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER) \
+		$(NAME_PARSE_PID_TEST)
+	./$(NAME_PARSE_PID_TEST)
 	sh tests/smoke.sh
 	sh tests/session_ownership.sh
 	sh tests/response_validation.sh
