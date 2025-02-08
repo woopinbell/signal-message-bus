@@ -213,14 +213,15 @@ static int	valid_client_socket(const char *path)
 	return (0);
 }
 
-static int	send_response(const t_response_request *request)
+static int	send_response(pid_t client_pid, uint32_t kind, uint32_t token,
+		int status)
 {
 	struct sockaddr_un	address;
 	t_mt_response		response;
 	char				client_path[MT_RESPONSE_PATH_SIZE];
 
 	if (mt_response_path(client_path, sizeof(client_path), "client",
-			request->client_pid) == -1 || valid_client_socket(client_path) == -1)
+			client_pid) == -1 || valid_client_socket(client_path) == -1)
 		return (-1);
 	memset(&address, 0, sizeof(address));
 	address.sun_family = AF_UNIX;
@@ -231,9 +232,9 @@ static int	send_response(const t_response_request *request)
 	}
 	memcpy(address.sun_path, client_path, mt_strlen(client_path) + 1);
 	response.magic = MT_RESPONSE_MAGIC;
-	response.kind = request->kind;
-	response.token = request->token;
-	response.status = request->status;
+	response.kind = kind;
+	response.token = token;
+	response.status = status;
 	response.server_pid = getpid();
 	if (sendto(g_response_socket, &response, sizeof(response), 0,
 			(struct sockaddr *)&address, sizeof(address))
@@ -284,32 +285,29 @@ static int	read_session_request(t_mt_request *request)
 
 static int	handle_session_request(void)
 {
-	t_response_request	response;
-	t_mt_request		request;
-	int					new_owner;
-	int					status;
+	t_mt_request	request;
+	int				new_owner;
+	int				status;
 
 	status = read_session_request(&request);
 	if (status <= 0)
 		return (status);
 	new_owner = 0;
-	response.status = MT_RESPONSE_OK;
+	status = MT_RESPONSE_OK;
 	if (g_client_pid != 0 && g_client_pid != request.client_pid)
 	{
 		if (kill((pid_t)g_client_pid, 0) == -1 && errno == ESRCH)
 			reset_session(1);
 		else
-			response.status = MT_RESPONSE_BUSY;
+			status = MT_RESPONSE_BUSY;
 	}
-	if (response.status == MT_RESPONSE_OK && g_client_pid == 0)
+	if (status == MT_RESPONSE_OK && g_client_pid == 0)
 	{
 		g_client_pid = request.client_pid;
 		new_owner = 1;
 	}
-	response.client_pid = request.client_pid;
-	response.kind = MT_RESPONSE_READY;
-	response.token = request.nonce;
-	if (send_response(&response) == -1 && new_owner)
+	if (send_response(request.client_pid, MT_RESPONSE_READY, request.nonce,
+			status) == -1 && new_owner)
 		reset_session(0);
 	return (0);
 }
@@ -324,7 +322,8 @@ static int	respond_to_bit(void)
 		return (0);
 	if (size != (ssize_t)sizeof(request) || g_response_overflow)
 		return (-1);
-	if (send_response(&request) == -1 && request.status == MT_RESPONSE_OK
+	if (send_response(request.client_pid, request.kind, request.token,
+			request.status) == -1 && request.status == MT_RESPONSE_OK
 		&& request.client_pid == (pid_t)g_client_pid)
 		reset_session(1);
 	return (0);
