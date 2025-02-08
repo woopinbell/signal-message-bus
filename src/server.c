@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
@@ -19,6 +20,14 @@ typedef struct s_response_request
 	uint32_t	token;
 	int32_t		status;
 }	t_response_request;
+
+typedef struct s_bit_event
+{
+	pid_t	sender;
+	int		signal;
+}	t_bit_event;
+
+typedef char	t_event_must_fit_pipe_buf[(sizeof(t_bit_event) <= PIPE_BUF) * 2 - 1];
 
 static volatile sig_atomic_t	g_current_byte;
 static volatile sig_atomic_t	g_received_bits;
@@ -87,27 +96,18 @@ static void	queue_response(pid_t client_pid, uint32_t kind,
 		g_response_overflow = 1;
 }
 
-static void	handle_bit(int signal, siginfo_t *info, void *context)
+static void	process_bit(const t_bit_event *event)
 {
 	unsigned char	output;
 	uint32_t		sequence;
-	int				saved_errno;
 
-	saved_errno = errno;
-	(void)context;
-	if (info == NULL || info->si_pid <= 0)
-	{
-		errno = saved_errno;
+	if (event->sender <= 0)
 		return ;
-	}
-	if (g_client_pid == 0 || g_client_pid != info->si_pid)
-	{
-		errno = saved_errno;
+	if (g_client_pid == 0 || g_client_pid != event->sender)
 		return ;
-	}
 	sequence = (uint32_t)g_sequence;
 	g_current_byte <<= 1;
-	if (signal == MT_ONE_SIGNAL)
+	if (event->signal == MT_ONE_SIGNAL)
 		g_current_byte |= 1;
 	g_received_bits++;
 	if (g_received_bits == 8)
@@ -119,7 +119,21 @@ static void	handle_bit(int signal, siginfo_t *info, void *context)
 	}
 	if (g_client_pid != 0)
 		g_sequence++;
-	queue_response(info->si_pid, MT_RESPONSE_ACK, sequence, MT_RESPONSE_OK);
+	queue_response(event->sender, MT_RESPONSE_ACK, sequence, MT_RESPONSE_OK);
+}
+
+static void	handle_bit(int signal, siginfo_t *info, void *context)
+{
+	t_bit_event	event;
+	int				saved_errno;
+
+	saved_errno = errno;
+	(void)context;
+	event.sender = 0;
+	if (info != NULL)
+		event.sender = info->si_pid;
+	event.signal = signal;
+	process_bit(&event);
 	errno = saved_errno;
 }
 
