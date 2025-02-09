@@ -69,6 +69,25 @@ STALE_UNRELATED_ERR="$TEST_TMP/stale-unrelated.err"
 	2>"$STALE_UNRELATED_ERR"
 grep -qx 'client: failed to send signal' "$STALE_UNRELATED_ERR"
 
+FLOOD_OUT="$TEST_TMP/flood.out"
+FLOOD_ERR="$TEST_TMP/flood.err"
+FLOOD_CLIENT_ERR="$TEST_TMP/flood-client.err"
+MT_TEST_INVALID_FLOOD=1 "$ROOT/tests/response_server" \
+	>"$FLOOD_OUT" 2>"$FLOOD_ERR" &
+SERVER_PID=$!
+wait_ready "$FLOOD_OUT"
+flood_started=$(date +%s)
+flood_status=0
+"$ROOT/client" "$SERVER_PID" flood 2>"$FLOOD_CLIENT_ERR" || flood_status=$?
+flood_elapsed=$(( $(date +%s) - flood_started ))
+[ "$flood_status" -ne 0 ]
+grep -qx 'client: timed out waiting for acknowledgement' "$FLOOD_CLIENT_ERR"
+[ "$flood_elapsed" -ge 2 ]
+[ "$flood_elapsed" -le 6 ]
+wait "$SERVER_PID"
+SERVER_PID=
+[ ! -s "$FLOOD_ERR" ]
+
 STALE_SERVER_OUT="$TEST_TMP/stale-server.out"
 STALE_SERVER_ERR="$TEST_TMP/stale-server.err"
 "$ROOT/tests/stale_server_exec" "$ROOT/server" \
