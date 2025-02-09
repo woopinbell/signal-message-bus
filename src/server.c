@@ -178,9 +178,15 @@ static int	install_signal_handlers(void)
 	sigemptyset(&action.sa_mask);
 	sigaddset(&action.sa_mask, MT_ZERO_SIGNAL);
 	sigaddset(&action.sa_mask, MT_ONE_SIGNAL);
+	sigaddset(&action.sa_mask, SIGHUP);
+	sigaddset(&action.sa_mask, SIGINT);
+	sigaddset(&action.sa_mask, SIGTERM);
 	action.sa_flags = SA_SIGINFO;
 	if (sigaction(MT_ZERO_SIGNAL, &action, NULL) == -1
-		|| sigaction(MT_ONE_SIGNAL, &action, NULL) == -1)
+		|| sigaction(MT_ONE_SIGNAL, &action, NULL) == -1
+		|| sigaction(SIGHUP, &action, NULL) == -1
+		|| sigaction(SIGINT, &action, NULL) == -1
+		|| sigaction(SIGTERM, &action, NULL) == -1)
 		return (-1);
 	return (0);
 }
@@ -326,6 +332,9 @@ static int	process_bit(const t_bit_event *event)
 	unsigned char	output;
 	uint32_t		sequence;
 
+	if (event->signal == SIGHUP || event->signal == SIGINT
+		|| event->signal == SIGTERM)
+		return (event->signal);
 	if (event->sender <= 0
 		|| (event->signal != MT_ZERO_SIGNAL && event->signal != MT_ONE_SIGNAL))
 		return (0);
@@ -386,9 +395,11 @@ static int	run_event_loop(void)
 			return (-1);
 		if (FD_ISSET(g_event_pipe[0], &read_set))
 		{
-			if (read_event(&event) == -1 || g_event_overflow
-				|| process_bit(&event) == -1)
+			if (read_event(&event) == -1 || g_event_overflow)
 				return (-1);
+			status = process_bit(&event);
+			if (status != 0)
+				return (status);
 		}
 	}
 }
@@ -413,6 +424,8 @@ static int	write_pid_line(pid_t pid)
 
 int	main(void)
 {
+	int	status;
+
 	if (prepare_response_channel() == -1 || atexit(cleanup_server) != 0)
 	{
 		cleanup_server();
@@ -431,10 +444,13 @@ int	main(void)
 		mt_putstr_fd("server: failed to publish pid\n", STDERR_FILENO);
 		return (1);
 	}
-	if (run_event_loop() == -1)
+	status = run_event_loop();
+	if (status == -1)
 	{
 		mt_putstr_fd("server: signal event channel failed\n", STDERR_FILENO);
 		return (1);
 	}
+	if (status > 0)
+		return (128 + status);
 	return (0);
 }
