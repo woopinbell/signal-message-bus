@@ -7,6 +7,7 @@ OUT="$TEST_TMP/server.out"
 ERR="$TEST_TMP/server.err"
 SERVER_PID=
 SERVER_PATH=
+CLIENT_PID=
 UNRELATED_PID=
 
 cleanup()
@@ -14,6 +15,11 @@ cleanup()
 	if [ -n "$UNRELATED_PID" ]; then
 		kill "$UNRELATED_PID" 2>/dev/null || true
 		wait "$UNRELATED_PID" 2>/dev/null || true
+	fi
+	if [ -n "$CLIENT_PID" ]; then
+		kill -CONT "$CLIENT_PID" 2>/dev/null || true
+		kill "$CLIENT_PID" 2>/dev/null || true
+		wait "$CLIENT_PID" 2>/dev/null || true
 	fi
 	if [ -n "$SERVER_PID" ]; then
 		kill "$SERVER_PID" 2>/dev/null || true
@@ -95,8 +101,31 @@ grep -qx 'client: failed to create response channel' "$TEST_TMP/file.err"
 } >"$TEST_TMP/expected"
 diff -u "$TEST_TMP/expected" "$OUT"
 
-kill "$SERVER_PID"
-wait "$SERVER_PID" 2>/dev/null || true
+CLIENT_ERR="$TEST_TMP/client.err"
+LONG_MESSAGE=$(awk 'BEGIN { for (i = 0; i < 16384; i++) printf "z" }')
+"$ROOT/client" "$SERVER_PID" "$LONG_MESSAGE" 2>"$CLIENT_ERR" &
+CLIENT_PID=$!
+sleep 0.05
+kill -STOP "$CLIENT_PID"
+sleep 0.1
+kill -CONT "$CLIENT_PID"
+wait "$CLIENT_PID"
+CLIENT_PATH="$RUNTIME_DIR/client-$CLIENT_PID.sock"
+CLIENT_PID=
+[ ! -e "$CLIENT_PATH" ]
+[ ! -s "$CLIENT_ERR" ]
+
+kill -TERM "$SERVER_PID"
+server_status=0
+wait "$SERVER_PID" || server_status=$?
 SERVER_PID=
-rm -f "$SERVER_PATH"
+[ "$server_status" -eq 143 ]
+[ ! -e "$SERVER_PATH" ]
 SERVER_PATH=
+[ ! -s "$ERR" ]
+{
+	sed -n '1p' "$OUT"
+	printf 'stale\n'
+	printf '%s\n' "$LONG_MESSAGE"
+} >"$TEST_TMP/expected-final"
+diff -u "$TEST_TMP/expected-final" "$OUT"
