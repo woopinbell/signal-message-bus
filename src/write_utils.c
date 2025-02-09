@@ -3,6 +3,10 @@
 #include <errno.h>
 #include <unistd.h>
 
+#ifndef MT_WRITE_CALL
+# define MT_WRITE_CALL write
+#endif
+
 size_t	mt_strlen(const char *text)
 {
 	size_t	length;
@@ -23,7 +27,7 @@ int	mt_write_all(int fd, const void *buffer, size_t size)
 	offset = 0;
 	while (offset < size)
 	{
-		written = write(fd, bytes + offset, size - offset);
+		written = MT_WRITE_CALL(fd, bytes + offset, size - offset);
 		if (written == -1 && errno == EINTR)
 			continue ;
 		if (written == -1)

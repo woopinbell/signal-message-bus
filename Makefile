@@ -4,11 +4,14 @@ NAME_SESSION_SENDER := tests/session_sender
 NAME_MASKED_EXEC := tests/masked_exec
 NAME_RESPONSE_SERVER := tests/response_server
 NAME_PARSE_PID_TEST := tests/parse_pid_test
+NAME_FAULT_SERVER := tests/fault_server
 
 CC := cc
 CFLAGS := -Wall -Wextra -Werror -Iinclude
+FAULT_CFLAGS := $(CFLAGS) -DMT_WRITE_CALL=mt_test_write -include tests/write_fault.h
 RM := rm -rf
 OBJ_DIR := obj
+FAULT_OBJ_DIR := obj/fault
 
 COMMON_SRC := src/write_utils.c src/parse_pid.c src/response_channel.c
 SERVER_SRC := src/server.c $(COMMON_SRC)
@@ -22,6 +25,8 @@ MASKED_EXEC_OBJ := $(OBJ_DIR)/tests/masked_exec.o
 RESPONSE_SERVER_OBJ := $(OBJ_DIR)/tests/response_server.o $(COMMON_OBJ)
 PARSE_PID_TEST_OBJ := $(OBJ_DIR)/tests/parse_pid_test.o \
 	$(OBJ_DIR)/src/parse_pid.o
+FAULT_SERVER_OBJ := $(SERVER_SRC:%.c=$(FAULT_OBJ_DIR)/%.o) \
+	$(OBJ_DIR)/tests/write_fault.o
 
 .PHONY: all clean fclean re test
 
@@ -45,22 +50,31 @@ $(NAME_RESPONSE_SERVER): $(RESPONSE_SERVER_OBJ)
 $(NAME_PARSE_PID_TEST): $(PARSE_PID_TEST_OBJ)
 	$(CC) $(CFLAGS) $(PARSE_PID_TEST_OBJ) -o $@
 
+$(NAME_FAULT_SERVER): $(FAULT_SERVER_OBJ)
+	$(CC) $(CFLAGS) $(FAULT_SERVER_OBJ) -o $@
+
 $(OBJ_DIR)/%.o: %.c include/minitalk.h
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(FAULT_OBJ_DIR)/%.o: %.c include/minitalk.h tests/write_fault.h
+	mkdir -p $(dir $@)
+	$(CC) $(FAULT_CFLAGS) -c $< -o $@
 
 clean:
 	$(RM) obj
 
 fclean: clean
 	$(RM) $(NAME_SERVER) $(NAME_CLIENT) $(NAME_SESSION_SENDER) \
-		$(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER) $(NAME_PARSE_PID_TEST)
+		$(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER) $(NAME_PARSE_PID_TEST) \
+		$(NAME_FAULT_SERVER)
 
 re: fclean all
 
 test: all $(NAME_SESSION_SENDER) $(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER) \
-		$(NAME_PARSE_PID_TEST)
+		$(NAME_PARSE_PID_TEST) $(NAME_FAULT_SERVER)
 	./$(NAME_PARSE_PID_TEST)
 	sh tests/smoke.sh
 	sh tests/session_ownership.sh
 	sh tests/response_validation.sh
+	sh tests/output_failure.sh
