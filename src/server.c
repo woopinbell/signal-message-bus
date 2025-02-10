@@ -143,6 +143,7 @@ static int	prepare_response_channel(void)
 	struct sockaddr_un	address;
 
 	if (pipe(g_event_pipe) == -1
+		|| g_event_pipe[0] >= FD_SETSIZE
 		|| set_close_on_exec(g_event_pipe[0]) == -1
 		|| set_nonblocking_close_on_exec(g_event_pipe[1]) == -1)
 		return (-1);
@@ -151,6 +152,7 @@ static int	prepare_response_channel(void)
 		return (-1);
 	g_response_socket = socket(AF_UNIX, SOCK_DGRAM, 0);
 	if (g_response_socket == -1
+		|| g_response_socket >= FD_SETSIZE
 		|| set_nonblocking_close_on_exec(g_response_socket) == -1)
 		return (-1);
 	memset(&address, 0, sizeof(address));
