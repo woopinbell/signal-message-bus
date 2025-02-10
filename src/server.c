@@ -13,6 +13,10 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#ifndef MT_EVENT_WRITE
+# define MT_EVENT_WRITE write
+#endif
+
 typedef struct s_bit_event
 {
 	pid_t	sender;
@@ -87,7 +91,7 @@ static void	handle_bit(int signal, siginfo_t *info, void *context)
 	if (info != NULL)
 		event.sender = info->si_pid;
 	event.signal = signal;
-	if (write(g_event_pipe[1], &event, sizeof(event))
+	if (MT_EVENT_WRITE(g_event_pipe[1], &event, sizeof(event))
 		!= (ssize_t)sizeof(event))
 		g_event_overflow = 1;
 	errno = saved_errno;

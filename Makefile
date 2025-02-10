@@ -10,7 +10,8 @@ NAME_STALE_SERVER_EXEC := tests/stale_server_exec
 
 CC := cc
 CFLAGS := -Wall -Wextra -Werror -Iinclude
-FAULT_CFLAGS := $(CFLAGS) -DMT_WRITE_CALL=mt_test_write -include tests/write_fault.h
+FAULT_CFLAGS := $(CFLAGS) -DMT_WRITE_CALL=mt_test_write \
+	-DMT_EVENT_WRITE=mt_test_event_write -include tests/write_fault.h
 RM := rm -rf
 OBJ_DIR := obj
 FAULT_OBJ_DIR := obj/fault

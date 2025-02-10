@@ -148,3 +148,23 @@ SERVER_PATH=
 	printf '%s\n' "$LONG_MESSAGE"
 } >"$TEST_TMP/expected-final"
 diff -u "$TEST_TMP/expected-final" "$OUT"
+
+OVERFLOW_OUT="$TEST_TMP/overflow.out"
+OVERFLOW_ERR="$TEST_TMP/overflow.err"
+OVERFLOW_CLIENT_ERR="$TEST_TMP/overflow-client.err"
+MT_TEST_EVENT_EAGAIN=1 "$ROOT/tests/fault_server" \
+	>"$OVERFLOW_OUT" 2>"$OVERFLOW_ERR" &
+SERVER_PID=$!
+wait_ready "$OVERFLOW_OUT"
+overflow_client_status=0
+"$ROOT/client" "$SERVER_PID" overflow 2>"$OVERFLOW_CLIENT_ERR" \
+	|| overflow_client_status=$?
+overflow_server_status=0
+wait "$SERVER_PID" || overflow_server_status=$?
+OVERFLOW_PATH="$RUNTIME_DIR/server-$SERVER_PID.sock"
+SERVER_PID=
+[ "$overflow_client_status" -ne 0 ]
+[ "$overflow_server_status" -ne 0 ]
+grep -qx 'server: signal event channel failed' "$OVERFLOW_ERR"
+grep -qx 'client: timed out waiting for acknowledgement' "$OVERFLOW_CLIENT_ERR"
+[ ! -e "$OVERFLOW_PATH" ]
