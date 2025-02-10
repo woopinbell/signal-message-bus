@@ -197,6 +197,19 @@ static int	install_signal_handlers(void)
 	return (0);
 }
 
+static int	unblock_event_signals(void)
+{
+	sigset_t	event_signals;
+
+	sigemptyset(&event_signals);
+	sigaddset(&event_signals, MT_ZERO_SIGNAL);
+	sigaddset(&event_signals, MT_ONE_SIGNAL);
+	sigaddset(&event_signals, SIGHUP);
+	sigaddset(&event_signals, SIGINT);
+	sigaddset(&event_signals, SIGTERM);
+	return (sigprocmask(SIG_UNBLOCK, &event_signals, NULL));
+}
+
 static int	valid_client_socket(const char *path)
 {
 	struct stat	info;
@@ -439,7 +452,7 @@ int	main(void)
 			STDERR_FILENO);
 		return (1);
 	}
-	if (install_signal_handlers() == -1)
+	if (install_signal_handlers() == -1 || unblock_event_signals() == -1)
 	{
 		mt_putstr_fd("server: failed to install signal handlers\n",
 			STDERR_FILENO);
