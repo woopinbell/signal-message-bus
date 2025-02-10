@@ -224,6 +224,20 @@ static int	valid_client_socket(const char *path)
 	return (0);
 }
 
+static int	session_owner_available(void)
+{
+	char	client_path[MT_RESPONSE_PATH_SIZE];
+
+	if (g_client_pid <= 1)
+		return (0);
+	if (kill(g_client_pid, 0) == -1 && errno == ESRCH)
+		return (0);
+	if (mt_response_path(client_path, sizeof(client_path), "client",
+			g_client_pid) == -1 || valid_client_socket(client_path) == -1)
+		return (0);
+	return (1);
+}
+
 static int	send_response(pid_t client_pid, uint32_t kind, uint32_t token,
 		int status)
 {
@@ -307,7 +321,7 @@ static int	handle_session_request(void)
 	status = MT_RESPONSE_OK;
 	if (g_client_pid != 0 && g_client_pid != request.client_pid)
 	{
-		if (kill(g_client_pid, 0) == -1 && errno == ESRCH)
+		if (!session_owner_available())
 		{
 			if (reset_session(1) == -1)
 				return (-1);
