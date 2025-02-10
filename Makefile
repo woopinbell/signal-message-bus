@@ -98,3 +98,4 @@ test: all $(NAME_SESSION_SENDER) $(NAME_MASKED_EXEC) $(NAME_RESPONSE_SERVER) \
 	sh tests/output_failure.sh
 	sh tests/protocol_regressions.sh
 	sh tests/high_fd.sh
+	sh tests/inherited_mask.sh
