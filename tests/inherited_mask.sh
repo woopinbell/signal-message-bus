@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
+TEST_DIR="$ROOT/build/test"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/minitalk-inherited-mask.XXXXXX")
 OUT="$TEST_TMP/server.out"
 EXPECTED="$TEST_TMP/expected.out"
@@ -30,7 +32,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$ROOT/tests/masked_exec" "$ROOT/server" >"$OUT" 2>"$SERVER_ERR" &
+"$TEST_DIR/masked_exec" "$BIN_DIR/server" >"$OUT" 2>"$SERVER_ERR" &
 WRAPPER_PID=$!
 tries=0
 while [ "$tries" -lt 50 ]; do
@@ -53,7 +55,7 @@ case "$SERVER_PID" in
 esac
 SERVER_PATH="/tmp/signal-message-bus-$(id -u)/server-$SERVER_PID.sock"
 
-"$ROOT/client" "$SERVER_PID" "inherited mask" 2>"$CLIENT_ERR"
+"$BIN_DIR/client" "$SERVER_PID" "inherited mask" 2>"$CLIENT_ERR"
 [ ! -s "$CLIENT_ERR" ]
 [ ! -s "$SERVER_ERR" ]
 {

@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
+TEST_DIR="$ROOT/build/test"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/signal-message-bus-response.XXXXXX")
 OUT="$TEST_TMP/server.out"
 ERR="$TEST_TMP/server.err"
@@ -22,7 +24,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$ROOT/tests/response_server" >"$OUT" 2>"$ERR" &
+"$TEST_DIR/response_server" >"$OUT" 2>"$ERR" &
 SERVER_PID=$!
 tries=0
 while [ "$tries" -lt 50 ] && ! grep -qx "$SERVER_PID" "$OUT" 2>/dev/null; do
@@ -38,7 +40,7 @@ if ! grep -qx "$SERVER_PID" "$OUT"; then
 	exit 1
 fi
 
-"$ROOT/client" "$SERVER_PID" probe 2>"$CLIENT_ERR"
+"$BIN_DIR/client" "$SERVER_PID" probe 2>"$CLIENT_ERR"
 wait "$SERVER_PID"
 SERVER_PID=
 

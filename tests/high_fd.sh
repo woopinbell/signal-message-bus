@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
+TEST_DIR="$ROOT/build/test"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/minitalk-high-fd.XXXXXX")
 OUT="$TEST_TMP/server.out"
 ERR="$TEST_TMP/server.err"
@@ -24,7 +26,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$ROOT/server" >"$OUT" 2>"$ERR" &
+"$BIN_DIR/server" >"$OUT" 2>"$ERR" &
 SERVER_PID=$!
 tries=0
 while [ "$tries" -lt 50 ] && ! grep -qx "$SERVER_PID" "$OUT" 2>/dev/null; do
@@ -38,7 +40,7 @@ done
 grep -qx "$SERVER_PID" "$OUT"
 
 client_status=0
-"$ROOT/tests/high_fd_exec" "$ROOT/client" "$SERVER_PID" high-fd \
+"$TEST_DIR/high_fd_exec" "$BIN_DIR/client" "$SERVER_PID" high-fd \
 	2>"$CLIENT_ERR" || client_status=$?
 [ "$client_status" -eq 1 ]
 grep -qx 'client: failed to create response channel' "$CLIENT_ERR"
@@ -46,7 +48,7 @@ kill -0 "$SERVER_PID"
 [ ! -s "$ERR" ]
 
 server_status=0
-"$ROOT/tests/high_fd_exec" "$ROOT/server" \
+"$TEST_DIR/high_fd_exec" "$BIN_DIR/server" \
 	>"$HIGH_SERVER_OUT" 2>"$HIGH_SERVER_ERR" || server_status=$?
 [ "$server_status" -eq 1 ]
 [ ! -s "$HIGH_SERVER_OUT" ]

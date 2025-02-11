@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
+TEST_DIR="$ROOT/build/test"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/signal-message-bus-session.XXXXXX")
 OUT="$TEST_TMP/server.out"
 SERVER_ERR="$TEST_TMP/server.err"
@@ -39,7 +41,7 @@ server_ready()
 	[ "$(sed -n '1p' "$OUT")" = "$SERVER_PID" ]
 }
 
-"$ROOT/server" >"$OUT" 2>"$SERVER_ERR" &
+"$BIN_DIR/server" >"$OUT" 2>"$SERVER_ERR" &
 SERVER_PID=$!
 
 tries=0
@@ -55,24 +57,24 @@ if ! server_ready; then
 	exit 1
 fi
 
-"$ROOT/client" "$SERVER_PID" "complete" 2>>"$CLIENT_ERR"
+"$BIN_DIR/client" "$SERVER_PID" "complete" 2>>"$CLIENT_ERR"
 
-"$ROOT/tests/session_sender" "$SERVER_PID" bit
-if ! "$ROOT/client" "$SERVER_PID" "bit recovered" 2>>"$CLIENT_ERR"; then
+"$TEST_DIR/session_sender" "$SERVER_PID" bit
+if ! "$BIN_DIR/client" "$SERVER_PID" "bit recovered" 2>>"$CLIENT_ERR"; then
 	printf 'server did not recover a bit-only abandoned session\n' >&2
 	cat "$CLIENT_ERR" >&2
 	exit 1
 fi
 
-"$ROOT/tests/session_sender" "$SERVER_PID" partial
-if ! "$ROOT/client" "$SERVER_PID" "line recovered" 2>>"$CLIENT_ERR"; then
+"$TEST_DIR/session_sender" "$SERVER_PID" partial
+if ! "$BIN_DIR/client" "$SERVER_PID" "line recovered" 2>>"$CLIENT_ERR"; then
 	printf 'server did not recover a partial-line abandoned session\n' >&2
 	cat "$CLIENT_ERR" >&2
 	exit 1
 fi
 
 : >"$READY"
-"$ROOT/tests/session_sender" "$SERVER_PID" reserve >"$READY" &
+"$TEST_DIR/session_sender" "$SERVER_PID" reserve >"$READY" &
 HOLDER_PID=$!
 tries=0
 while [ "$tries" -lt 50 ]; do
@@ -92,7 +94,7 @@ if ! grep -qx 'ready' "$READY"; then
 fi
 
 cp "$OUT" "$BEFORE_BUSY"
-if "$ROOT/client" "$SERVER_PID" "blocked" 2>"$BUSY_ERR"; then
+if "$BIN_DIR/client" "$SERVER_PID" "blocked" 2>"$BUSY_ERR"; then
 	printf 'server accepted a competitor while the owner was alive\n' >&2
 	exit 1
 fi
@@ -103,14 +105,14 @@ diff -u "$BEFORE_BUSY" "$OUT"
 kill "$HOLDER_PID"
 wait "$HOLDER_PID" 2>/dev/null || true
 HOLDER_PID=
-if ! "$ROOT/client" "$SERVER_PID" "reservation recovered" 2>>"$CLIENT_ERR"; then
+if ! "$BIN_DIR/client" "$SERVER_PID" "reservation recovered" 2>>"$CLIENT_ERR"; then
 	printf 'server did not recover after the live reserved owner exited\n' >&2
 	cat "$CLIENT_ERR" >&2
 	exit 1
 fi
 
 masked_status=0
-"$ROOT/tests/masked_exec" "$ROOT/client" "$SERVER_PID" "masked ack" \
+"$TEST_DIR/masked_exec" "$BIN_DIR/client" "$SERVER_PID" "masked ack" \
 	2>>"$CLIENT_ERR" || masked_status=$?
 if [ "$masked_status" -ne 0 ]; then
 	printf 'client did not consume acknowledgements inherited as blocked\n' >&2

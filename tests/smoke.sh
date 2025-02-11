@@ -2,6 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/signal-message-bus-smoke.XXXXXX")
 OUT="$TEST_TMP/server.out"
 EXPECTED="$TEST_TMP/expected.out"
@@ -18,7 +19,7 @@ send_checked()
 {
 	label=$1
 	message=$2
-	if ! "$ROOT/client" "$SERVER_PID" "$message" 2>"$CLIENT_ERR"; then
+	if ! "$BIN_DIR/client" "$SERVER_PID" "$message" 2>"$CLIENT_ERR"; then
 		printf 'normal client failed during %s\n' "$label" >&2
 		cat "$CLIENT_ERR" >&2
 		exit 1
@@ -55,7 +56,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$ROOT/server" >"$OUT" 2>"$SERVER_ERR" &
+"$BIN_DIR/server" >"$OUT" 2>"$SERVER_ERR" &
 SERVER_PID=$!
 
 tries=0
@@ -83,7 +84,7 @@ LONG_MESSAGE=$(awk 'BEGIN { for (i = 0; i < 1024; i++) printf "x" }')
 send_checked long "$LONG_MESSAGE"
 send_checked final "last message"
 
-if "$ROOT/client" 1 "bad pid" 2>"$INVALID_ERR"; then
+if "$BIN_DIR/client" 1 "bad pid" 2>"$INVALID_ERR"; then
 	printf 'client accepted an invalid pid\n' >&2
 	exit 1
 fi
@@ -111,7 +112,7 @@ if ! grep -qx 'ready' "$DUMMY_READY"; then
 	printf 'unrelated process did not become ready\n' >&2
 	exit 1
 fi
-if "$ROOT/client" "$DUMMY_PID" "unrelated" 2>"$UNRELATED_ERR"; then
+if "$BIN_DIR/client" "$DUMMY_PID" "unrelated" 2>"$UNRELATED_ERR"; then
 	printf 'client accepted a process without a server socket\n' >&2
 	exit 1
 fi

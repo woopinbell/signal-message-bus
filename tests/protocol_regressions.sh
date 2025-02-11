@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
+TEST_DIR="$ROOT/build/test"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/minitalk-protocol.XXXXXX")
 OUT="$TEST_TMP/server.out"
 ERR="$TEST_TMP/server.err"
@@ -54,7 +56,7 @@ wait_ready()
 UNRELATED_ERR="$TEST_TMP/unrelated.err"
 sleep 30 &
 UNRELATED_PID=$!
-if "$ROOT/client" "$UNRELATED_PID" unrelated 2>"$UNRELATED_ERR"; then
+if "$BIN_DIR/client" "$UNRELATED_PID" unrelated 2>"$UNRELATED_ERR"; then
 	printf 'client accepted a process without an active server\n' >&2
 	exit 1
 fi
@@ -65,20 +67,20 @@ wait "$UNRELATED_PID" 2>/dev/null || true
 UNRELATED_PID=
 
 STALE_UNRELATED_ERR="$TEST_TMP/stale-unrelated.err"
-"$ROOT/tests/stale_server_exec" "$ROOT/client" unrelated \
+"$TEST_DIR/stale_server_exec" "$BIN_DIR/client" unrelated \
 	2>"$STALE_UNRELATED_ERR"
 grep -qx 'client: failed to send signal' "$STALE_UNRELATED_ERR"
 
 FLOOD_OUT="$TEST_TMP/flood.out"
 FLOOD_ERR="$TEST_TMP/flood.err"
 FLOOD_CLIENT_ERR="$TEST_TMP/flood-client.err"
-MT_TEST_INVALID_FLOOD=1 "$ROOT/tests/response_server" \
+MT_TEST_INVALID_FLOOD=1 "$TEST_DIR/response_server" \
 	>"$FLOOD_OUT" 2>"$FLOOD_ERR" &
 SERVER_PID=$!
 wait_ready "$FLOOD_OUT"
 flood_started=$(date +%s)
 flood_status=0
-"$ROOT/client" "$SERVER_PID" flood 2>"$FLOOD_CLIENT_ERR" || flood_status=$?
+"$BIN_DIR/client" "$SERVER_PID" flood 2>"$FLOOD_CLIENT_ERR" || flood_status=$?
 flood_elapsed=$(( $(date +%s) - flood_started ))
 [ "$flood_status" -ne 0 ]
 grep -qx 'client: timed out waiting for acknowledgement' "$FLOOD_CLIENT_ERR"
@@ -90,13 +92,13 @@ SERVER_PID=
 
 STALE_SERVER_OUT="$TEST_TMP/stale-server.out"
 STALE_SERVER_ERR="$TEST_TMP/stale-server.err"
-"$ROOT/tests/stale_server_exec" "$ROOT/server" \
+"$TEST_DIR/stale_server_exec" "$BIN_DIR/server" \
 	>"$STALE_SERVER_OUT" 2>"$STALE_SERVER_ERR"
 [ ! -s "$STALE_SERVER_OUT" ]
 grep -qx 'server: failed to create response channel' "$STALE_SERVER_ERR"
 
 RUNTIME_DIR="/tmp/signal-message-bus-$(id -u)"
-"$ROOT/server" >"$OUT" 2>"$ERR" &
+"$BIN_DIR/server" >"$OUT" 2>"$ERR" &
 SERVER_PID=$!
 SERVER_PATH="$RUNTIME_DIR/server-$SERVER_PID.sock"
 wait_ready "$OUT"
@@ -107,10 +109,10 @@ else
 fi
 [ "$runtime_mode" = 700 ]
 
-"$ROOT/tests/stale_exec" "$ROOT/client" "$SERVER_PID" stale socket \
+"$TEST_DIR/stale_exec" "$BIN_DIR/client" "$SERVER_PID" stale socket \
 	2>"$TEST_TMP/stale.err"
 [ ! -s "$TEST_TMP/stale.err" ]
-"$ROOT/tests/stale_exec" "$ROOT/client" "$SERVER_PID" blocked file \
+"$TEST_DIR/stale_exec" "$BIN_DIR/client" "$SERVER_PID" blocked file \
 	2>"$TEST_TMP/file.err"
 grep -qx 'client: failed to create response channel' "$TEST_TMP/file.err"
 [ ! -s "$ERR" ]
@@ -122,7 +124,7 @@ diff -u "$TEST_TMP/expected" "$OUT"
 
 CLIENT_ERR="$TEST_TMP/client.err"
 LONG_MESSAGE=$(awk 'BEGIN { for (i = 0; i < 16384; i++) printf "z" }')
-"$ROOT/client" "$SERVER_PID" "$LONG_MESSAGE" 2>"$CLIENT_ERR" &
+"$BIN_DIR/client" "$SERVER_PID" "$LONG_MESSAGE" 2>"$CLIENT_ERR" &
 CLIENT_PID=$!
 sleep 0.05
 kill -STOP "$CLIENT_PID"
@@ -152,12 +154,12 @@ diff -u "$TEST_TMP/expected-final" "$OUT"
 OVERFLOW_OUT="$TEST_TMP/overflow.out"
 OVERFLOW_ERR="$TEST_TMP/overflow.err"
 OVERFLOW_CLIENT_ERR="$TEST_TMP/overflow-client.err"
-MT_TEST_EVENT_EAGAIN=1 "$ROOT/tests/fault_server" \
+MT_TEST_EVENT_EAGAIN=1 "$TEST_DIR/fault_server" \
 	>"$OVERFLOW_OUT" 2>"$OVERFLOW_ERR" &
 SERVER_PID=$!
 wait_ready "$OVERFLOW_OUT"
 overflow_client_status=0
-"$ROOT/client" "$SERVER_PID" overflow 2>"$OVERFLOW_CLIENT_ERR" \
+"$BIN_DIR/client" "$SERVER_PID" overflow 2>"$OVERFLOW_CLIENT_ERR" \
 	|| overflow_client_status=$?
 overflow_server_status=0
 wait "$SERVER_PID" || overflow_server_status=$?

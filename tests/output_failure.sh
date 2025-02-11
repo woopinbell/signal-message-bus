@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BIN_DIR="$ROOT/build/bin"
+TEST_DIR="$ROOT/build/test"
 TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/signal-message-bus-output.XXXXXX")
 SERVER_PID=
 
@@ -36,7 +38,7 @@ wait_ready()
 
 STARTUP_OUT="$TEST_TMP/startup.out"
 STARTUP_ERR="$TEST_TMP/startup.err"
-MT_TEST_ZERO_ONCE=1 "$ROOT/tests/fault_server" >"$STARTUP_OUT" 2>"$STARTUP_ERR" &
+MT_TEST_ZERO_ONCE=1 "$TEST_DIR/fault_server" >"$STARTUP_OUT" 2>"$STARTUP_ERR" &
 STARTUP_PID=$!
 startup_status=0
 wait "$STARTUP_PID" || startup_status=$?
@@ -54,10 +56,10 @@ PARTIAL_OUT="$TEST_TMP/partial.out"
 PARTIAL_ERR="$TEST_TMP/partial.err"
 CLIENT_ERR="$TEST_TMP/client.err"
 MT_TEST_MAX_WRITE=1 MT_TEST_EINTR_ONCE=1 \
-	"$ROOT/tests/fault_server" >"$PARTIAL_OUT" 2>"$PARTIAL_ERR" &
+	"$TEST_DIR/fault_server" >"$PARTIAL_OUT" 2>"$PARTIAL_ERR" &
 SERVER_PID=$!
 wait_ready "$PARTIAL_OUT"
-"$ROOT/client" "$SERVER_PID" partial 2>"$CLIENT_ERR"
+"$BIN_DIR/client" "$SERVER_PID" partial 2>"$CLIENT_ERR"
 kill "$SERVER_PID"
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=
@@ -75,11 +77,11 @@ BYTE_OUT="$TEST_TMP/byte.out"
 BYTE_ERR="$TEST_TMP/byte.err"
 BYTE_CLIENT_ERR="$TEST_TMP/byte-client.err"
 MT_TEST_FAIL_BYTE=X MT_TEST_FAIL_EPIPE=1 \
-	"$ROOT/tests/fault_server" >"$BYTE_OUT" 2>"$BYTE_ERR" &
+	"$TEST_DIR/fault_server" >"$BYTE_OUT" 2>"$BYTE_ERR" &
 SERVER_PID=$!
 wait_ready "$BYTE_OUT"
 client_status=0
-"$ROOT/client" "$SERVER_PID" X 2>"$BYTE_CLIENT_ERR" || client_status=$?
+"$BIN_DIR/client" "$SERVER_PID" X 2>"$BYTE_CLIENT_ERR" || client_status=$?
 server_status=0
 wait "$SERVER_PID" || server_status=$?
 SERVER_PID=
@@ -95,11 +97,11 @@ NEWLINE_OUT="$TEST_TMP/newline.out"
 NEWLINE_ERR="$TEST_TMP/newline.err"
 NEWLINE_CLIENT_ERR="$TEST_TMP/newline-client.err"
 MT_TEST_FAIL_NEWLINE_NUMBER=2 MT_TEST_FAIL_EPIPE=1 \
-	"$ROOT/tests/fault_server" >"$NEWLINE_OUT" 2>"$NEWLINE_ERR" &
+	"$TEST_DIR/fault_server" >"$NEWLINE_OUT" 2>"$NEWLINE_ERR" &
 SERVER_PID=$!
 wait_ready "$NEWLINE_OUT"
 client_status=0
-"$ROOT/client" "$SERVER_PID" "" 2>"$NEWLINE_CLIENT_ERR" || client_status=$?
+"$BIN_DIR/client" "$SERVER_PID" "" 2>"$NEWLINE_CLIENT_ERR" || client_status=$?
 server_status=0
 wait "$SERVER_PID" || server_status=$?
 SERVER_PID=
@@ -115,12 +117,12 @@ RECOVERY_OUT="$TEST_TMP/recovery.out"
 RECOVERY_ERR="$TEST_TMP/recovery.err"
 RECOVERY_CLIENT_ERR="$TEST_TMP/recovery-client.err"
 MT_TEST_FAIL_NEWLINE_NUMBER=2 MT_TEST_FAIL_EPIPE=1 \
-	"$ROOT/tests/fault_server" >"$RECOVERY_OUT" 2>"$RECOVERY_ERR" &
+	"$TEST_DIR/fault_server" >"$RECOVERY_OUT" 2>"$RECOVERY_ERR" &
 SERVER_PID=$!
 wait_ready "$RECOVERY_OUT"
-"$ROOT/tests/session_sender" "$SERVER_PID" partial
+"$TEST_DIR/session_sender" "$SERVER_PID" partial
 recovery_client_status=0
-"$ROOT/client" "$SERVER_PID" recovered 2>"$RECOVERY_CLIENT_ERR" \
+"$BIN_DIR/client" "$SERVER_PID" recovered 2>"$RECOVERY_CLIENT_ERR" \
 	|| recovery_client_status=$?
 recovery_server_status=0
 wait "$SERVER_PID" || recovery_server_status=$?
